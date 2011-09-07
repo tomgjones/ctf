@@ -63,6 +63,14 @@ my $manifest = YAML::LoadFile($conf{manifest});
 # TODO: if not explicitly configured, and manifest doesn't exist, treat
 # as empty manifest.
 
+my %mf_hash;
+for (@$manifest) {
+    my $path = $_->{path};
+    defined($path) or die "every entry in manifest must define path\n";
+    defined($mf_hash->{$path}) and die "defined twice in manifest: $path\n";
+    $mf_hash->{$path} = $_;
+}
+
 my %compdirs = (
     root => catfile($conf{contentdir}, "root"),
     home => catfile($conf{contentdir}, "home"),
@@ -113,7 +121,8 @@ my @updated;
 
 for my $file (@files) {
     # update, adding to @updated if changed
-    run(['rplc', $file->{ 
+    run(['rplc', filehash_to_fspath($file)], '<', 
+         filehash_to_content_location($file));
 }
 
 for my $file (@updated) {
@@ -131,12 +140,27 @@ sub maybe {
 sub filehash_to_fspath {
     my ($file) = @_;
 
-    my $ret;
     $file->{comp} eq 'root' and return catfile("/", $file->{relpath});
     $file->{comp} eq 'home' and return catfile($ENV{HOME}, $file->{relpath});
     die;
 }
 
-sub filehash_to_repo_path {
+sub filehash_to_content_location {
+    my ($file) = @_;
 
+    return catfile($conf{contentdir}, $file->{comp}, $file->{relpath});
+}
+
+sub filehash_to_manifest_path {
+    my ($file) = @_;
+
+    $file->{comp} eq 'root' and return catfile("/", $file->{relpath});
+    $file->{comp} eq 'home' and return catfile('~', $file->{relpath});
+    die;
+}
+
+sub manifest_entry {
+    my ($file, $manifest) = @_;
+
+    if ($file->
 }
