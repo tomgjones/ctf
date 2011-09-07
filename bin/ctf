@@ -1,0 +1,142 @@
+#!/usr/bin/perl
+
+# Implements ctf(1), defined separately.
+
+use strict;
+use warnings FATAL => 'all';
+
+use File::Find::Object;
+use File::Spec::Functions; # catfile
+use Getopt::Long;
+use List::MoreUtils qw(any);
+use Pod::Usage;
+use Readonly;
+use YAML;
+
+Readonly my $DFLT_CF = "/etc/ctf/ctf.conf";
+
+my %conf = (
+    contentdir => "/var/lib/ctf/content";
+    lockpath = "/var/lock/ctf/lock";
+    disablepath = "/var/lib/ctf/disable";
+);
+
+my $opt_cf;
+my $test = 0;
+my $opt_pre = 0;
+my $opt_no_pre = 0;
+my $opt_no_post = 0;
+
+GetOptions(
+    'c|config=s' => \$opt_cf,
+    't|test' => \$test,
+    'p|pre' => \$opt_prectf,
+    'P|nopre' => \$opt_no_pre,
+    'T|nopost' => \$opt_no_post,
+);
+
+my @selection = @ARGV;
+
+my $pre = ($test && $opt_pre) or (! $opt_no_pre);
+my $post = !$opt_no_post;
+
+my $do_load_cf = defined($opt_cf) || -f $DFLT_CF;
+
+if ($do_load_cf) {
+    my $cfyaml = YAML::LoadFile($cf);
+
+    for (qw(contentdir lockpath disablepath)) {
+        defined($cfyaml->{$_}) and $conf{$_} = $cfyaml->{$_};
+    }
+}
+
+# default
+$conf{manifest} = catfile($conf{contendir}, "ctf.manifest");
+
+if ($do_load_cf) {
+    for (qw(manifest)) {
+        defined($cfyaml->{$_}) and $conf{$_} = $cfyaml->{$_};
+    }
+}
+
+my $manifest = YAML::LoadFile($conf{manifest});
+# TODO: if not explicitly configured, and manifest doesn't exist, treat
+# as empty manifest.
+
+my %compdirs = (
+    root => catfile($conf{contentdir}, "root"),
+    home => catfile($conf{contentdir}, "home"),
+);
+
+my %do_comps;
+
+for my $comp (sort keys %compdirs) {
+    $do_comps{$comp} = -d $compdirs{$comp};
+}
+
+if (! any { -d } values %compdirs) {
+    warn "no possible component dirs exist; these are:\n";
+    for (sort keys %compdirs) {
+        warn $compdirs{$_} . "\n";
+    }
+    exit 100;
+}
+
+if (@ARGV) {
+    # only look 
+}
+# ELSE
+for my $comp (sort keys %compdirs) {
+    if ($do_comps{$comp}) {
+        chdir $compdirs{$comp} or die "$!: $compdirs{$comp}\n";
+
+        my $tree = File::Find::Object->new({}, ".");
+        while (my $r = $tree->next) {
+            next if -d $r;
+            if (-l $r) {
+                warn "repo components can not contain symlinks: $r\n";
+                exit 101;
+            }
+            if (! -f $r) {
+                warn "repo components can only contain regular files: $r\n";
+            }
+            push @files, {comp => $comp, relpath => $r};
+        }
+    }
+}
+
+for my $file (@$manifest) {
+    # confirm present (unless selection excludes it)
+}
+
+my @updated;
+
+for my $file (@files) {
+    # update, adding to @updated if changed
+    run(['rplc', $file->{ 
+}
+
+for my $file (@updated) {
+    # record need to run postctf, for files with a postctf configured
+    # run postctfs, recording that each one has run
+}
+
+# maybe this isn't needed any more
+sub maybe {
+    my ($file, $selection) = @_;
+    # TODO: return empty list if it's not in selection
+    return ($file);
+}
+
+sub filehash_to_fspath {
+    my ($file) = @_;
+
+    my $ret;
+    $file->{comp} eq 'root' and return catfile("/", $file->{relpath});
+    $file->{comp} eq 'home' and return catfile($ENV{HOME}, $file->{relpath});
+    die;
+}
+
+sub filehash_to_repo_path {
+
+}

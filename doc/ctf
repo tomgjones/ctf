@@ -1,0 +1,43 @@
+=head1 NAME
+
+ctf - configuration tool f?
+
+=head1 SYNOPSIS
+
+  ctf [PATH ...]
+
+=head1 DESCRIPTION
+
+Deploys managed configuration files from the configured repository.
+If PATH ... is supplied, only files under those paths are
+deployed.
+
+=head2 OPTIONS
+
+=over4
+
+=item -c,--config CF
+
+Use CF as the configuration file instead of /etc/ctf/ctf.conf.
+
+=item -t,--test
+
+Report on what would be deployed, but don't do it.  Doesn't
+execute any content from the repository, such as prectf programs.
+
+=item -p,--pre
+
+Execute prectf programs.  This is normally the default, but
+not so when --test is given.
+
+=item -P,--nopre
+
+Don't execute prectf programs.
+
+=item -T,--nopost
+
+Don't execute postctf programs.
+
+=head1 SEE ALSO
+
+ctf.conf(5)

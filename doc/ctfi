@@ -1,0 +1,23 @@
+=head1 NAME
+
+ctfi - ctf instances helper
+
+=head1 SYNOPSIS
+
+  # ctfi INSTANCENAME [CTFARGS ...]
+
+=head1 DESCRIPTION
+
+When run as root, C<ctfi INSTANCENAME> is equivalent to 
+C<ctf --config /etc/ctfi/INSTANCENAME/ctf.conf>.
+
+When run as a non-root user, it's equivalent to
+C<ctf --config ~/.ctfi/INSTANCENAME/ctf.conf>.
+
+CTFARGS are passed on to ctf(1).
+
+=head1 SEE ALSO
+
+ctf(1)
+
+=cut

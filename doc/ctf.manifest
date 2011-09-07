@@ -1,0 +1,111 @@
+=head1 NAME
+
+ctf.manifest - declaration of files managed by ctf(1)
+
+=head1 SYNOPSIS
+
+/var/lib/ctf/content/ctf.manifest
+
+=head1 DESCRIPTION
+
+ctf.manifest is a declaration of metadata about some
+of the files managed by ctf.
+
+ctf.manifest should be a utf-8 encoded YAML file, with the
+top level structure being a list of mappings.  The content of these
+mappings is described below.
+
+=head1 REQUIRED ATTRIBUTES
+
+=over 4
+
+=item path
+
+Path to the file in its final installed location.  Paths starting
+"/" in the root component, and
+are relative to the root directory.  Paths starting "~" are
+in the home component, and are
+relative to the home directory of the user running ctf.
+
+Additional components may be defined in future, beginning with
+other characters.
+
+=back
+
+=head1 OPTIONAL ATTRIBUTES
+
+=over 4
+
+=item text-encoding
+
+Name of the text encoding scheme for the content of this file.
+
+Default is utf-8.
+
+If set to "none", configtool will conclude it is not safe to display
+the file's contents by printing them
+to the terminal.
+
+=item group
+
+Name of the group to own the file.
+
+=item mode
+
+Octal representation of the file's mode.
+
+=item owner
+
+Username of the file's owner.
+
+=item old
+
+Path to the saved copy of the previous version of the file.
+Configtool saves the previous version of the file when it is deploying a new
+version.  By default, the name of the saved copy is <filename>.ctfold.
+
+=item depends
+
+List of files which should be deployed before this one.
+
+=item status
+
+If "ex", this means the file used to be managed by ctf, but is no
+more.  ctf will remove it.  (This could be designed a bit nicer,
+look at how package managers know which files they manage).
+
+=item post
+
+Name of a program to run after installing this file.  Normally 
+used to activate the new
+configuration.  The program will be run with this file's name
+as an argument.
+
+If the post program is also managed by ctf, it will be updated
+before being run.
+
+TODO: if it fails, this file and its group are replaced by
+their previous versions.
+
+=item pre
+
+Name of a program to run before installing this file.  Normally
+used to validate the file's contents.  The path to this file
+in the repository component will be passed to the program (not
+the path to this file in its final destination).
+
+If the pre program exits non-zero, ctf will conclude that this
+file should not be installed.
+
+=back
+
+=head1 SEE ALSO
+
+=over 4
+
+=item ctf(1)
+=item ctf.conf(5)
+
+=back
+
+=cut
