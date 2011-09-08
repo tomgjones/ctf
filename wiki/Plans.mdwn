@@ -1,0 +1,4 @@
+# Possible future development
+
+- make most things settable in ctf.conf(5) also settable on the
+  command line of ctf(1)
