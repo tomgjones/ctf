@@ -1,0 +1,37 @@
+=head1 NAME
+
+postctf - plugin interface for postctf programs
+
+=head1 SYNOPSIS
+
+  #!/bin/sh
+  exec my_validate_prog "$1"
+
+=head1 DESCRIPTION
+
+A postctf program is hooked in to the deployment of a new version
+of a configuration file by ctf(1).  Its purpose is typically to
+apply the new configuration, for example by restarting a daemon
+or by rebuilding a derived file.
+
+When the user supplies a "postctf" program for a file deployed
+by L<ctf(1)>, by 
+specifying it for that file in L<ctf.conf(5)>, the postctf program
+should implement the following interface.
+
+=head2 ARGUMENTS
+
+The first argument is the path to the configuration file
+that's changed.
+
+=head2 EXIT CODES
+
+The postctf should exit zero on success, or non-zero on failure.
+
+L<etr(1)> may be useful if you're trying to write a one-liner that
+execs a program, such as diff, where there are non-zero exit
+codes that don't indicate an error.
+
+=head1 SEE ALSO
+
+=cut
