@@ -8,7 +8,7 @@ use warnings FATAL => 'all';
 use File::Find::Object;
 use File::Spec::Functions; # catfile
 use Getopt::Long;
-use List::MoreUtils qw(any);
+use List::MoreUtils qw(any zip);
 use Pod::Usage;
 use Readonly;
 use YAML;
@@ -26,6 +26,8 @@ my $test = 0;
 my $opt_pre = 0;
 my $opt_no_pre = 0;
 my $opt_no_post = 0;
+my @comp;
+my @comploc;
 
 GetOptions(
     'c|config=s' => \$opt_cf,
@@ -33,7 +35,23 @@ GetOptions(
     'p|pre' => \$opt_prectf,
     'P|nopre' => \$opt_no_pre,
     'T|nopost' => \$opt_no_post,
+    'comp=s' => \@comp,
+    'comp-loc=s' => \@comploc,
 );
+
+my %complocs_opt = (
+    root => catfile($conf{contentdir}, "root"),
+    home => catfile($conf{contentdir}, "home"),
+);
+
+if (@comp or @comploc) {
+    @comp == @comploc or fatl(64, "--comp and --comp-loc must be given "
+        . "the same number of times, because they define a mapping.  --comp "
+        . "was given " . scalar(@comp) . " times and --comp-loc was given "
+        . scalar(@comploc) . " times");
+
+    %complocs_opt = zip @comp @comploc;
+}
 
 my @selection = @ARGV;
 
@@ -42,8 +60,11 @@ my $post = !$opt_no_post;
 
 my $do_load_cf = defined($opt_cf) || -f $DFLT_CF;
 
+my $cfyaml = {};
+
 if ($do_load_cf) {
-    my $cfyaml = YAML::LoadFile($cf);
+    my $cf = $opt_cf // $DFLT_CF;
+    $cfyaml = YAML::LoadFile($cf);
 
     for (qw(contentdir lockpath disablepath)) {
         defined($cfyaml->{$_}) and $conf{$_} = $cfyaml->{$_};
@@ -51,7 +72,7 @@ if ($do_load_cf) {
 }
 
 # default
-$conf{manifest} = catfile($conf{contendir}, "ctf.manifest");
+$conf{manifest} = catfile($conf{contentdir}, "ctf.manifest");
 
 if ($do_load_cf) {
     for (qw(manifest)) {
@@ -66,15 +87,25 @@ my $manifest = YAML::LoadFile($conf{manifest});
 my %mf_hash;
 for (@$manifest) {
     my $path = $_->{path};
-    defined($path) or die "every entry in manifest must define path\n";
-    defined($mf_hash->{$path}) and die "defined twice in manifest: $path\n";
+    defined($path) or fatl(78, $conf{manifest}
+        . ": every entry in manifest must define path");
+    defined($mf_hash->{$path}) and fatl(78, $conf{manifest}
+        . ": defined twice in manifest: $path\n");
     $mf_hash->{$path} = $_;
-}
+  }
 
 my %compdirs = (
     root => catfile($conf{contentdir}, "root"),
     home => catfile($conf{contentdir}, "home"),
 );
+# Config file entries override defaults..
+if (defined($cfyaml->{comp_locs})) {
+    %compdirs = (%compdirs, %{$cfyaml->{comp_locs}});
+}
+# and command line options win.
+if (%complocs_opt) {
+    %compdirs = (%compdirs, %complocs_opt);
+}
 
 my %do_comps;
 
@@ -83,7 +114,8 @@ for my $comp (sort keys %compdirs) {
 }
 
 if (! any { -d } values %compdirs) {
-    warn "no possible component dirs exist; these are:\n";
+    warn "no possible component dirs exist under $conf{contentdir}; "
+        . "these are:\n";
     for (sort keys %compdirs) {
         warn $compdirs{$_} . "\n";
     }
@@ -107,6 +139,7 @@ for my $comp (sort keys %compdirs) {
             }
             if (! -f $r) {
                 warn "repo components can only contain regular files: $r\n";
+                exit 101;
             }
             push @files, {comp => $comp, relpath => $r};
         }
@@ -123,18 +156,12 @@ for my $file (@files) {
     # update, adding to @updated if changed
     run(['rplc', filehash_to_fspath($file)], '<', 
          filehash_to_content_location($file));
-}
+    # FIXME: how do we tell if it changed, is it from rplc's exit code?
+    # This requires rplc's interface to be fully specified.
 
-for my $file (@updated) {
-    # record need to run postctf, for files with a postctf configured
-    # run postctfs, recording that each one has run
-}
-
-# maybe this isn't needed any more
-sub maybe {
-    my ($file, $selection) = @_;
-    # TODO: return empty list if it's not in selection
-    return ($file);
+    # Want to run postctf from here (subject to deps), so that we
+    # have minimal unapplied config, and can easily back out if a
+    # postctf fails.
 }
 
 sub filehash_to_fspath {
@@ -162,5 +189,12 @@ sub filehash_to_manifest_path {
 sub manifest_entry {
     my ($file, $manifest) = @_;
 
-    if ($file->
+#    if ($file->
+}
+
+sub fatl {
+    my ($exit, @msg) = @_;
+
+    print STDERR "ctf: fatal: ", @msg, "\n";
+    exit $exit;
 }
