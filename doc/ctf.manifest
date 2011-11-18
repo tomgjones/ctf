@@ -9,9 +9,16 @@ ctf.manifest - declaration of files managed by ctf(1)
 =head1 DESCRIPTION
 
 ctf.manifest is a declaration of metadata about some
-of the files managed by ctf.
+of the files managed by L<ctf(1)>.
 
-ctf.manifest should be a utf-8 encoded YAML file, with the
+If a file is declared in ctf.manifest but absent from the
+content of the repository, ctf(1) will issue a warning.
+
+If a file is present in the content of the repository but
+not declared in ctf.manifest, ctf(1) will install it, applying
+the normal defaults to determine the file's metadata.
+
+ctf.manifest should be a YAML file, with the
 top level structure being a list of mappings.  The content of these
 mappings is described below.
 
@@ -42,31 +49,41 @@ Name of the text encoding scheme for the content of this file.
 
 Default is utf-8.
 
-If set to "none", configtool will conclude it is not safe to display
+If set to "none", ctf will conclude it is not safe to display
 the file's contents by printing them
 to the terminal.
 
 =item group
 
-Name of the group to own the file.
+Name of the group to own the file.  Default is the GID of the user running
+ctf(1).
 
 =item mode
 
-Octal representation of the file's mode.
+Octal representation of the file's mode.  Default is 0444.
 
 =item owner
 
-Username of the file's owner.
+Username of the file's owner.  Default is the UID of the user running
+ctf(1).
 
 =item old
 
 Path to the saved copy of the previous version of the file.
-Configtool saves the previous version of the file when it is deploying a new
+Ctf saves the previous version of the file when it is deploying a new
 version.  By default, the name of the saved copy is <filename>.ctfold.
+
+=item orig
+
+Path to the saved copy of the original version of the file.  FIXME:
+haven't yet determined whether it's feasible to implement this
+reliably.
 
 =item depends
 
-List of files which should be deployed before this one.
+List of files which should be deployed before this one.  All config
+files depend on any prectfs, and are depended
+upon by any postctfs.
 
 =item status
 
@@ -79,12 +96,13 @@ look at how package managers know which files they manage).
 Name of a program to run after installing this file.  Normally 
 used to activate the new
 configuration.  The program will be run with this file's name
-as an argument.
+as an argument.  For more details, see postctf(3).
 
 If the post program is also managed by ctf, it will be updated
 before being run.
 
-TODO: if it fails, this file and its group are replaced by
+TODO: if it fails (non zero exit status), 
+this file and its group are replaced by
 their previous versions.
 
 =item pre
@@ -92,9 +110,10 @@ their previous versions.
 Name of a program to run before installing this file.  Normally
 used to validate the file's contents.  The path to this file
 in the repository component will be passed to the program (not
-the path to this file in its final destination).
+the path to this file in its final destination).  For more
+details, see L<prectf(3)>.
 
-If the pre program exits non-zero, ctf will conclude that this
+TODO: If the pre program exits non-zero, ctf will conclude that this
 file should not be installed.
 
 =back

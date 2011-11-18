@@ -1,16 +1,19 @@
 =head1 NAME
 
-postctf - plugin interface for postctf programs
+postctf - plugin interface for postctf (post config file installation) programs
 
 =head1 SYNOPSIS
 
+Example:
+
   #!/bin/sh
-  exec my_validate_prog "$1"
+  exec my_apply_new_config_prog "$1"
 
 =head1 DESCRIPTION
 
 A postctf program is hooked in to the deployment of a new version
-of a configuration file by ctf(1).  Its purpose is typically to
+of a configuration file by ctf(1).  It is executed after the file
+has been deployed.  Its purpose is typically to
 apply the new configuration, for example by restarting a daemon
 or by rebuilding a derived file.
 
@@ -28,10 +31,29 @@ that's changed.
 
 The postctf should exit zero on success, or non-zero on failure.
 
+Exiting non-zero will result in L<ctf(1)> attempting to back out
+the just-installed configuration file to its previous version.
+It will also result in deferred overall failure of L<ctf(1)>.   L<ctf(1)>
+will continue to deploy remaining configuration files, so long as
+they don't depend on a file whose postctf has failed.
+
 L<etr(1)> may be useful if you're trying to write a one-liner that
 execs a program, such as diff, where there are non-zero exit
 codes that don't indicate an error.
 
+=head1 CAVEATS
+
+L<etr(1)> hasn't been specified or implemented yet.
+
 =head1 SEE ALSO
+
+=over 4
+
+=item prectf(3)
+
+=item ctf(1)
+
+=item ctf.manifest(5)
+
 
 =cut

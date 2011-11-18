@@ -11,16 +11,17 @@ ctf - configuration file deployer
 Deploys managed configuration files from the configured repository
 as specified in L<ctf.conf(5)>.
 
-ctf expects to find a L<ctf.manifest(5)> in the repository.  The
-configuration files to deploy are found in subdirectories of the
-repository; each of these subdirectories is called a component.
+ctf expects to find a L<ctf.manifest(5)> directly
+in the top level content directory.
+The configuration files to deploy are found in subdirectories of the
+content directory; each of these subdirectories is called a component.
 
 If PATH ... is supplied, only files under those paths are
 deployed (not implemented).
 
 =head2 OPTIONS
 
-=over4
+=over 4
 
 =item -c,--config CF
 
@@ -29,13 +30,8 @@ Use CF as the configuration file.  The default configuration file is
 
 =item -t,--test
 
-Report on what would be deployed, but don't do it.  Doesn't
-execute any content from the repository, such as prectf programs.
-
-=item -p,--pre
-
-Execute prectf programs.  This is normally the default, but
-not so when --test is given.
+Report on what would be deployed, but don't do it.  Executes
+prectf programs.
 
 =item -P,--nopre
 
@@ -45,11 +41,21 @@ Don't execute prectf programs.
 
 Don't execute postctf programs.
 
+=item -s,--safe
+
+Report on what would be changed, without executing any content from
+the repository.  Currently equivalent to C<-tP>. 
+
 =item --comp and --comp-loc
 
-Override the location of components.
+Override the location of components.  
 
 Mainly for testing purposes.
+
+There must be an equal number
+of C<--comp> and C<--comp-loc>; they are paired up in order.
+
+=back
 
 =head1 SEE ALSO
 
