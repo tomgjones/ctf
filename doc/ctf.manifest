@@ -82,8 +82,8 @@ reliably.
 =item depends
 
 List of files which should be deployed before this one.  All config
-files depend on any prectfs, and are depended
-upon by any postctfs.
+files depend on their own prectfs, and are depended
+upon by their postctfs, should these exist.
 
 =item status
 

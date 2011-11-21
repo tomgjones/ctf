@@ -28,6 +28,10 @@ deployed (not implemented).
 Use CF as the configuration file.  The default configuration file is
 /etc/ctf/ctf.conf for root, or ~/.ctf.conf for other users.
 
+=item -C,--content=DIR
+
+Use DIR as the content directory.
+
 =item -t,--test
 
 Report on what would be deployed, but don't do it.  Executes
