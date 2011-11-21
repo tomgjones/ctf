@@ -7,18 +7,21 @@ use warnings FATAL => 'all';
 
 use File::Find::Object;
 use File::Spec::Functions; # catfile
-use Getopt::Long;
+use Getopt::Long qw( :config bundling no_ignore_case require_order );
+use IPC::Run qw(run);
 use List::MoreUtils qw(any zip);
 use Pod::Usage;
 use Readonly;
 use YAML;
 
-Readonly my $DFLT_CF = "/etc/ctf/ctf.conf";
+my $root = $< == 0;
+
+Readonly my $DFLT_CF => $root ? "/etc/ctf/ctf.conf" : "$ENV{HOME}/.ctf.conf";
 
 my %conf = (
-    contentdir => "/var/lib/ctf/content";
-    lockpath = "/var/lock/ctf/lock";
-    disablepath = "/var/lib/ctf/disable";
+    contentdir => ($root ? "/var/lib/ctf/content" : "$ENV{HOME}/.ctf/content"),
+    lockpath => $root ? "/var/lib/ctf/lock" : "$ENV{HOME}/.ctf/lock",
+    disablepath => $root ? "/var/lib/ctf/disable" : "ENV{HOME}/.ctf/disable",
 );
 
 my $opt_cf;
@@ -28,21 +31,24 @@ my $opt_no_pre = 0;
 my $opt_no_post = 0;
 my @comp;
 my @comploc;
+my $opt_safe = 0;
+my $opt_content;
+my $opt_test;
 
 GetOptions(
     'c|config=s' => \$opt_cf,
     't|test' => \$test,
-    'p|pre' => \$opt_prectf,
     'P|nopre' => \$opt_no_pre,
     'T|nopost' => \$opt_no_post,
     'comp=s' => \@comp,
     'comp-loc=s' => \@comploc,
-);
+    's|safe'     => \$opt_safe,
+    'C|content=s' => \$opt_content,
+) or die;
 
-my %complocs_opt = (
-    root => catfile($conf{contentdir}, "root"),
-    home => catfile($conf{contentdir}, "home"),
-);
+defined($opt_content) and $conf{contentdir} = $opt_content;
+
+my %complocs_opt;
 
 if (@comp or @comploc) {
     @comp == @comploc or fatl(64, "--comp and --comp-loc must be given "
@@ -50,13 +56,13 @@ if (@comp or @comploc) {
         . "was given " . scalar(@comp) . " times and --comp-loc was given "
         . scalar(@comploc) . " times");
 
-    %complocs_opt = zip @comp @comploc;
+    %complocs_opt = (zip @comp, @comploc);
 }
 
 my @selection = @ARGV;
 
-my $pre = ($test && $opt_pre) or (! $opt_no_pre);
-my $post = !$opt_no_post;
+my $pre = (!$opt_safe and !$opt_no_pre);
+my $post = (!$opt_safe and !$opt_no_post and !$opt_test);
 
 my $do_load_cf = defined($opt_cf) || -f $DFLT_CF;
 
@@ -64,6 +70,10 @@ my $cfyaml = {};
 
 if ($do_load_cf) {
     my $cf = $opt_cf // $DFLT_CF;
+
+    # Currently relying on unspecified behaviour, that YAML will raise
+    # an exception with a descriptive message if it can't load the file.
+    # <https://rt.cpan.org/Public/Bug/Display.html?id=72571>
     $cfyaml = YAML::LoadFile($cf);
 
     for (qw(contentdir lockpath disablepath)) {
@@ -80,19 +90,30 @@ if ($do_load_cf) {
     }
 }
 
-my $manifest = YAML::LoadFile($conf{manifest});
-# TODO: if not explicitly configured, and manifest doesn't exist, treat
-# as empty manifest.
+# again, <https://rt.cpan.org/Public/Bug/Display.html?id=72571>
+my $manifest;
+eval {
+    $manifest = YAML::LoadFile($conf{manifest});
+};
+if ($@) {
+    my $explicitly_configured = defined($cfyaml->{manifest});
+    if ($explicitly_configured) {
+        die $@;
+    }
+    else {
+        $manifest = [];
+    }
+}
 
 my %mf_hash;
 for (@$manifest) {
     my $path = $_->{path};
     defined($path) or fatl(78, $conf{manifest}
         . ": every entry in manifest must define path");
-    defined($mf_hash->{$path}) and fatl(78, $conf{manifest}
+    defined($mf_hash{$path}) and fatl(78, $conf{manifest}
         . ": defined twice in manifest: $path\n");
-    $mf_hash->{$path} = $_;
-  }
+    $mf_hash{$path} = $_;
+}
 
 my %compdirs = (
     root => catfile($conf{contentdir}, "root"),
@@ -102,7 +123,7 @@ my %compdirs = (
 if (defined($cfyaml->{comp_locs})) {
     %compdirs = (%compdirs, %{$cfyaml->{comp_locs}});
 }
-# and command line options win.
+# .. and command line options win.
 if (%complocs_opt) {
     %compdirs = (%compdirs, %complocs_opt);
 }
@@ -110,6 +131,8 @@ if (%complocs_opt) {
 my %do_comps;
 
 for my $comp (sort keys %compdirs) {
+    # FIXME: Probably need to distinguish between explicitly conifgured 
+    # ones, which should exist, and default values, which need not.
     $do_comps{$comp} = -d $compdirs{$comp};
 }
 
@@ -122,10 +145,17 @@ if (! any { -d } values %compdirs) {
     exit 100;
 }
 
+my @under;
+
 if (@ARGV) {
-    # only look 
+    @under = @ARGV;
 }
-# ELSE
+else {
+    @under = ("/");
+}
+
+my @files;
+
 for my $comp (sort keys %compdirs) {
     if ($do_comps{$comp}) {
         chdir $compdirs{$comp} or die "$!: $compdirs{$comp}\n";
@@ -147,17 +177,30 @@ for my $comp (sort keys %compdirs) {
 }
 
 for my $file (@$manifest) {
-    # confirm present (unless selection excludes it)
+    # FIXME: confirm present (unless selection excludes it).
+    # warn if not.
 }
 
 my @updated;
 
 for my $file (@files) {
     # update, adding to @updated if changed
-    run(['rplc', filehash_to_fspath($file)], '<', 
-         filehash_to_content_location($file));
-    # FIXME: how do we tell if it changed, is it from rplc's exit code?
-    # This requires rplc's interface to be fully specified.
+    my @rplc = qw(rplc -e);
+
+    my $mfe = $mf_hash{filehash_to_manifest_path($file)};
+    if (defined($mfe)) {
+        my %mfe = %{$mfe};
+        defined($mfe{mode}) and push @rplc, "-m", $mfe{mode};
+        defined($mfe{owner}) and push @rplc, "-o", $mfe{owner};
+        defined($mfe{group}) and push @rplc, "-g", $mfe{group};
+        if (defined($mfe{'text-encoding'}) && $mfe{'text-encoding'} eq 'none') {
+            push @rplc, "--no-text";
+        }
+    }
+
+    push @rplc, filehash_to_fspath($file);
+
+    run([@rplc], '<', filehash_to_content_location($file));
 
     # Want to run postctf from here (subject to deps), so that we
     # have minimal unapplied config, and can easily back out if a
@@ -167,8 +210,10 @@ for my $file (@files) {
 sub filehash_to_fspath {
     my ($file) = @_;
 
-    $file->{comp} eq 'root' and return catfile("/", $file->{relpath});
-    $file->{comp} eq 'home' and return catfile($ENV{HOME}, $file->{relpath});
+    $file->{comp} eq 'root' and 
+        return canonpath(catfile("/", $file->{relpath}));
+    $file->{comp} eq 'home' and 
+        return canonpath(catfile($ENV{HOME}, $file->{relpath}));
     die;
 }
 
@@ -181,8 +226,10 @@ sub filehash_to_content_location {
 sub filehash_to_manifest_path {
     my ($file) = @_;
 
-    $file->{comp} eq 'root' and return catfile("/", $file->{relpath});
-    $file->{comp} eq 'home' and return catfile('~', $file->{relpath});
+    $file->{comp} eq 'root' and
+        return canonpath(catfile("/", $file->{relpath}));
+    $file->{comp} eq 'home' and 
+        return canonpath(catfile('~', $file->{relpath}));
     die;
 }
 
@@ -198,3 +245,9 @@ sub fatl {
     print STDERR "ctf: fatal: ", @msg, "\n";
     exit $exit;
 }
+
+# FIXME
+# - what to do if two components end up specifying the same file
+#   differently, eg ~/foo and /home/alice/foo.
+# - validate all properties in the manifest?  Catches errors, but may
+#   reduce extensibility for other apps
