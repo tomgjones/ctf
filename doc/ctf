@@ -50,14 +50,32 @@ Don't execute postctf programs.
 Report on what would be changed, without executing any content from
 the repository.  Currently equivalent to C<-tP>. 
 
-=item --comp and --comp-loc
+=item -H,--home-src=PATH
 
-Override the location of components.  
+Override the input location of the built-in "home" component.  The default
+is a directory named "home" in the content directory.
 
-Mainly for testing purposes.
+=item -I,--home-dst=PATH
 
-There must be an equal number
-of C<--comp> and C<--comp-loc>; they are paired up in order.
+Override the output location of the built-in "home" component.  The default
+is $HOME taken from the environment.
+
+=item -r,--root-src=PATH
+
+Override the input location of the built-in "root" component.  The default
+is a directory named "root" in the content directory.
+
+=item -R,--root-dst=PATH
+
+Override the output location of the built-in "root" component.  The default
+is "/".
+
+=item --comp=NAME and --comp-src=PATH and --comp-dst=PATH
+
+These may be defined in future to allow extra components to be
+defined for the user.
+
+=item -h,--help
 
 =back
 

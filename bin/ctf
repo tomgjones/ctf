@@ -5,21 +5,23 @@
 use strict;
 use warnings FATAL => 'all';
 
+use Data::Dumper;
 use File::Find::Object;
 use File::Spec::Functions; # catfile
 use Getopt::Long qw( :config bundling no_ignore_case require_order );
 use IPC::Run qw(run);
-use List::MoreUtils qw(any zip);
+use List::MoreUtils qw(any zip pairwise);
 use Pod::Usage;
 use Readonly;
+# use Smart::Comments;
 use YAML;
 
-my $root = $< == 0;
+Readonly my $root => $< == 0;
 
 Readonly my $DFLT_CF => $root ? "/etc/ctf/ctf.conf" : "$ENV{HOME}/.ctf.conf";
+Readonly my @KNOWN_COMPS => qw(root home);
 
 my %conf = (
-    contentdir => ($root ? "/var/lib/ctf/content" : "$ENV{HOME}/.ctf/content"),
     lockpath => $root ? "/var/lib/ctf/lock" : "$ENV{HOME}/.ctf/lock",
     disablepath => $root ? "/var/lib/ctf/disable" : "ENV{HOME}/.ctf/disable",
 );
@@ -29,37 +31,33 @@ my $test = 0;
 my $opt_pre = 0;
 my $opt_no_pre = 0;
 my $opt_no_post = 0;
-my @comp;
-my @comploc;
 my $opt_safe = 0;
 my $opt_content;
 my $opt_test;
+my $opt_dry_run;
+my ($opt_home_src, $opt_home_dst, $opt_root_src, $opt_root_dst);
 
 GetOptions(
     'c|config=s' => \$opt_cf,
     't|test' => \$test,
     'P|nopre' => \$opt_no_pre,
     'T|nopost' => \$opt_no_post,
-    'comp=s' => \@comp,
-    'comp-loc=s' => \@comploc,
     's|safe'     => \$opt_safe,
     'C|content=s' => \$opt_content,
+    'n|dry-run' => \$opt_dry_run,
+    'H|home-src=s' => \$opt_home_src,
+    'I|home-dst=s' => \$opt_home_dst,
+    'r|root-src=s' => \$opt_root_src,
+    'R|root-dst=s' => \$opt_root_dst,
+    'h|help' => sub { pod2usage(-exitval => 0) },
 ) or die;
 
-defined($opt_content) and $conf{contentdir} = $opt_content;
-
-my %complocs_opt;
-
-if (@comp or @comploc) {
-    @comp == @comploc or fatl(64, "--comp and --comp-loc must be given "
-        . "the same number of times, because they define a mapping.  --comp "
-        . "was given " . scalar(@comp) . " times and --comp-loc was given "
-        . scalar(@comploc) . " times");
-
-    %complocs_opt = (zip @comp, @comploc);
-}
+Readonly my $cdir => defined($opt_content) ? $opt_content
+    : $root ? "/var/lib/ctf/content"
+    :         "$ENV{HOME}/.ctf/content";
 
 my @selection = @ARGV;
+
 
 my $pre = (!$opt_safe and !$opt_no_pre);
 my $post = (!$opt_safe and !$opt_no_post and !$opt_test);
@@ -80,6 +78,16 @@ if ($do_load_cf) {
         defined($cfyaml->{$_}) and $conf{$_} = $cfyaml->{$_};
     }
 }
+
+Readonly my %comp_src => (
+    root => $opt_root_src // $cfyaml->{root}{src} // canonpath("$cdir/root"),
+    home => $opt_home_src // $cfyaml->{home}{src} // canonpath("$cdir/home"),
+);
+
+Readonly my %comp_dst => (
+    root => $opt_root_dst // $cfyaml->{root}{dst} // '/',
+    home => $opt_home_dst // $cfyaml->{home}{dst} // canonpath($ENV{HOME}),
+);
 
 # default
 $conf{manifest} = catfile($conf{contentdir}, "ctf.manifest");
@@ -115,63 +123,82 @@ for (@$manifest) {
     $mf_hash{$path} = $_;
 }
 
-my %compdirs = (
-    root => catfile($conf{contentdir}, "root"),
-    home => catfile($conf{contentdir}, "home"),
-);
-# Config file entries override defaults..
-if (defined($cfyaml->{comp_locs})) {
-    %compdirs = (%compdirs, %{$cfyaml->{comp_locs}});
-}
-# .. and command line options win.
-if (%complocs_opt) {
-    %compdirs = (%compdirs, %complocs_opt);
+for my $k (keys %comp_src, keys %comp_dst) {
+    if (! grep { $k eq $_ } @KNOWN_COMPS) {
+        fatl(1, "unknown component: $k");
+        # Okay but we should tell the user whether the bad data came from
+        # the config file or a command line option.
+    }
 }
 
 my %do_comps;
 
-for my $comp (sort keys %compdirs) {
+for my $comp (sort keys %comp_src) {
     # FIXME: Probably need to distinguish between explicitly conifgured 
     # ones, which should exist, and default values, which need not.
-    $do_comps{$comp} = -d $compdirs{$comp};
+    # IOW, if I'm just managing my dotfiles under ~, I don't need to
+    # have the input directory for the root component exist at all, but
+    # if I've asked for root component to come from somewhere, then that
+    # place should exist.  Summary of this comment needs to go into the
+    # interface spec, after which most of it can be deleted!
+    $do_comps{$comp} = -d $comp_src{$comp};
 }
 
-if (! any { -d } values %compdirs) {
-    warn "no possible component dirs exist under $conf{contentdir}; "
+if (! any { -d } values %comp_src) {
+    warn "no possible component dirs exist; "
         . "these are:\n";
-    for (sort keys %compdirs) {
-        warn $compdirs{$_} . "\n";
+    for (sort keys %comp_src) {
+        warn $comp_src{$_} . "\n";
     }
     exit 100;
 }
 
-my @under;
+my @pfixes;
 
 if (@ARGV) {
-    @under = @ARGV;
+    @pfixes = @ARGV;
 }
 else {
-    @under = ("/");
+    @pfixes = ("/");
 }
 
 my @files;
+for my $pfix (@pfixes) {
+    for my $comp (sort keys %comp_src) {
+        my $dst_under_pfix = path_under($comp_dst{$comp}, $pfix);
 
-for my $comp (sort keys %compdirs) {
-    if ($do_comps{$comp}) {
-        chdir $compdirs{$comp} or die "$!: $compdirs{$comp}\n";
+        my $findpath_within_comp = defined($dst_under_pfix)
+            ? "" 
+            : path_under($pfix, $comp_dst{$comp});
 
-        my $tree = File::Find::Object->new({}, ".");
-        while (my $r = $tree->next) {
-            next if -d $r;
-            if (-l $r) {
-                warn "repo components can not contain symlinks: $r\n";
-                exit 101;
+        if ($do_comps{$comp} && defined($findpath_within_comp)) {
+
+            my $findpath = canonpath("$comp_src{$comp}/$findpath_within_comp");
+            
+            my $tree = File::Find::Object->new({}, $findpath);
+
+            while (my $p = $tree->next) {
+                next if -d $p;
+                if (-l $p) {
+                    warn "repo components can not contain symlinks: $p\n";
+                    exit 101;
+                }
+                if (! -f $p) {
+                    warn "repo components can only contain regular files: $p\n";
+                    exit 101;
+                }
+
+                my $path_within_comp = path_under($p, $comp_src{$comp});
+                $path_within_comp // die;
+
+                my $dstpath = canonpath("$comp_dst{$comp}/$path_within_comp");
+
+                push @files, {
+                   comp    => $comp,
+                   dstpath => $dstpath,
+                   srcpath => $p,
+                };
             }
-            if (! -f $r) {
-                warn "repo components can only contain regular files: $r\n";
-                exit 101;
-            }
-            push @files, {comp => $comp, relpath => $r};
         }
     }
 }
@@ -193,34 +220,20 @@ for my $file (@files) {
         defined($mfe{mode}) and push @rplc, "-m", $mfe{mode};
         defined($mfe{owner}) and push @rplc, "-o", $mfe{owner};
         defined($mfe{group}) and push @rplc, "-g", $mfe{group};
+        $opt_dry_run and push @rplc, "-n";
+
         if (defined($mfe{'text-encoding'}) && $mfe{'text-encoding'} eq 'none') {
             push @rplc, "--no-text";
         }
     }
 
-    push @rplc, filehash_to_fspath($file);
+    push @rplc, $file->{dstpath};
 
-    run([@rplc], '<', filehash_to_content_location($file));
+    run([@rplc], '<', $file->{srcpath});
 
     # Want to run postctf from here (subject to deps), so that we
     # have minimal unapplied config, and can easily back out if a
     # postctf fails.
-}
-
-sub filehash_to_fspath {
-    my ($file) = @_;
-
-    $file->{comp} eq 'root' and 
-        return canonpath(catfile("/", $file->{relpath}));
-    $file->{comp} eq 'home' and 
-        return canonpath(catfile($ENV{HOME}, $file->{relpath}));
-    die;
-}
-
-sub filehash_to_content_location {
-    my ($file) = @_;
-
-    return catfile($conf{contentdir}, $file->{comp}, $file->{relpath});
 }
 
 sub filehash_to_manifest_path {
@@ -239,6 +252,68 @@ sub manifest_entry {
 #    if ($file->
 }
 
+# THIS CAN BE DELETED ONCE USERS OF IT ARE CHANGED TO path_under()
+# Returns 1 if path $higher is an ancestor directory
+# of path $lower, given Unix
+# filesystem path semantics, false otherwise.  Does not
+# check actual filesystem; there must be enough information in the
+# input strings for it to work.
+sub is_under {
+    my ($lower, $higher) = @_;
+
+    my @lower = split('/', canonpath($lower));
+    my @higher = split('/', canonpath($higher));
+
+    @lower < @higher and return;
+
+# This was producing a warning 'Name "main::a" used only once: possible typo'
+#    pairwise { defined($b) or return 1; $a eq $b or return; } @lower, @higher;
+
+    for (my $i = 0; $i <= $#lower; $i++) {
+        defined($higher[$i]) or return 1;
+        $lower[$i] eq $higher[$i] or return;
+    }
+
+    return 1;
+}
+
+# If $lower is under $higher (on path strings alone, not on looking at
+# the filesystem), then returns the path to reach $lower from $higher.
+# Otherwise returns the empty list in list context, or undef in scalar
+# context.
+sub path_under {
+    my ($lower, $higher) = @_;
+
+    my @lower = split('/+', canonpath($lower));
+    my @higher = split('/+', canonpath($higher));
+
+    @lower < @higher and return;
+
+# This was producing a warning 'Name "main::a" used only once: possible typo'
+#    pairwise { defined($b) or return 1; $a eq $b or return; } @lower, @higher;
+
+    for (my $i = 0; $i <= $#lower; $i++) {
+        defined($higher[$i]) or return catfile(@lower[$i..$#lower]);
+        $lower[$i] eq $higher[$i] or return;
+    }
+
+    return $lower[$#lower];
+}
+
+
+# Say we want to know the path, within each of the components,
+# to /home/bob/foo.  Within root, it's /home/bob/foo.  Within home
+# it's foo.
+sub path_to_pfix_within_comp {
+    my ($path, $comp, $comp_dst) = @_;
+
+    if (!is_under($path, $comp_dst->{$comp})) {
+        die;
+    }
+
+    
+}
+
 sub fatl {
     my ($exit, @msg) = @_;
 
@@ -251,3 +326,17 @@ sub fatl {
 #   differently, eg ~/foo and /home/alice/foo.
 # - validate all properties in the manifest?  Catches errors, but may
 #   reduce extensibility for other apps
+
+=head1 NAME ctf - deploy configuration files
+
+Please see separate definition of interface in doc/ctf; this POD
+is only here for pod2usage's sake to easily generate help text.
+
+=head1 SYNOPSIS
+
+  ctf [OPTIONS] [PATH ...]
+
+  Deploy config files under PATHs, or all if no PATH is given.
+
+  OPTIONS
+  -c,--content=DIR specify content directory
