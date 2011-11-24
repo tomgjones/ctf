@@ -17,7 +17,13 @@ The configuration files to deploy are found in subdirectories of the
 content directory; each of these subdirectories is called a component.
 
 If PATH ... is supplied, only files under those paths are
-deployed (not implemented).
+deployed.
+
+By default, when a file's content is changed, a backup copy of the
+file is taken.  The backup file's name is based on the main file's
+name, but with a . prepended and ".ctfprev" appended.  The backup
+file path can be overridden or disabled per file (see L<ctf.manifest(5)>),
+or backup files can be disabled altogether (see --no-backups below).
 
 =head2 OPTIONS
 
@@ -74,6 +80,10 @@ is "/".
 
 These may be defined in future to allow extra components to be
 defined for the user.
+
+=item -B, --no-backups
+
+Don't take any backup copies of files.
 
 =item -h,--help
 
