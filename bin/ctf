@@ -6,14 +6,16 @@ use strict;
 use warnings FATAL => 'all';
 
 use Data::Dumper;
+use File::Compare;
 use File::Find::Object;
 use File::Spec::Functions; # catfile
+use File::stat;
 use Getopt::Long qw( :config bundling no_ignore_case require_order );
 use IPC::Run qw(run);
 use List::MoreUtils qw(any zip pairwise);
 use Pod::Usage;
 use Readonly;
-# use Smart::Comments;
+use Smart::Comments;
 use YAML;
 
 Readonly my $root => $< == 0;
@@ -210,26 +212,31 @@ for my $file (@$manifest) {
 
 my @updated;
 
-for my $file (@files) {
+FILE: for my $file (@files) {
     # update, adding to @updated if changed
     my @rplc = qw(rplc -e);
-
     my $mfe = $mf_hash{filehash_to_manifest_path($file)};
+
+    ischange($file->{dstpath}, $file->{srcpath}, $mfe // {}) or next FILE;
+
     if (defined($mfe)) {
         my %mfe = %{$mfe};
         defined($mfe{mode}) and push @rplc, "-m", $mfe{mode};
         defined($mfe{owner}) and push @rplc, "-o", $mfe{owner};
         defined($mfe{group}) and push @rplc, "-g", $mfe{group};
-        $opt_dry_run and push @rplc, "-n";
 
         if (defined($mfe{'text-encoding'}) && $mfe{'text-encoding'} eq 'none') {
             push @rplc, "--no-text";
         }
     }
 
+    $opt_dry_run and push @rplc, "-n";
+
     push @rplc, $file->{dstpath};
 
     run([@rplc], '<', $file->{srcpath});
+
+    # FIXME: check for failure
 
     # Want to run postctf from here (subject to deps), so that we
     # have minimal unapplied config, and can easily back out if a
@@ -250,31 +257,6 @@ sub manifest_entry {
     my ($file, $manifest) = @_;
 
 #    if ($file->
-}
-
-# THIS CAN BE DELETED ONCE USERS OF IT ARE CHANGED TO path_under()
-# Returns 1 if path $higher is an ancestor directory
-# of path $lower, given Unix
-# filesystem path semantics, false otherwise.  Does not
-# check actual filesystem; there must be enough information in the
-# input strings for it to work.
-sub is_under {
-    my ($lower, $higher) = @_;
-
-    my @lower = split('/', canonpath($lower));
-    my @higher = split('/', canonpath($higher));
-
-    @lower < @higher and return;
-
-# This was producing a warning 'Name "main::a" used only once: possible typo'
-#    pairwise { defined($b) or return 1; $a eq $b or return; } @lower, @higher;
-
-    for (my $i = 0; $i <= $#lower; $i++) {
-        defined($higher[$i]) or return 1;
-        $lower[$i] eq $higher[$i] or return;
-    }
-
-    return 1;
 }
 
 # If $lower is under $higher (on path strings alone, not on looking at
@@ -314,6 +296,38 @@ sub path_to_pfix_within_comp {
     
 }
 
+# It would be less code to let rplc do all this work, but the program
+# was taking ~ 1 sec just for a few tens of files, so this is a 
+# worthwhile optimisation.  Plus we don't cause so many writes, which
+# has other advantages.
+sub ischange {
+    my ($path, $replacementpath, $meta) = @_;
+
+    -f $path or return 1;
+
+    defined(my $st = stat($path)) or fatl("$!: $path");
+
+    if (defined($meta->{mode}) && oct($meta->{mode}) != ($st->mode & 07777)) {
+        return 1;
+    }
+    
+    if (defined($meta->{owner})) {
+        my $uid = getpwnam($meta->{user});
+        defined($uid) or fatl("$meta->{user}: $!");
+        $uid == $st->uid or return 1;
+    }
+
+    if (defined($meta->{group})) {
+        defined(my $gid = getgrnam($meta->{group})) 
+            or fatl("$meta->{group}: $!");
+        $gid == $st->gid or return 1;
+    }
+
+    compare($path, $replacementpath) and return 1;
+
+    return;
+}
+
 sub fatl {
     my ($exit, @msg) = @_;
 
@@ -326,6 +340,12 @@ sub fatl {
 #   differently, eg ~/foo and /home/alice/foo.
 # - validate all properties in the manifest?  Catches errors, but may
 #   reduce extensibility for other apps
+# - not currently setting mode correctly for ~/bin/morning
+# - -n mode doesn't work - it still deploys
+# - may still be too fragile with binary files, eg a vim .swp file was
+#   lying around, this made it fall over.  Maybe if diff exits 2, use
+#   cmp instead
+
 
 =head1 NAME ctf - deploy configuration files
 
