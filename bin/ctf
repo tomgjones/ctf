@@ -30,17 +30,10 @@ my %conf = (
     disablepath => $root ? "/var/lib/ctf/disable" : "ENV{HOME}/.ctf/disable",
 );
 
-my $opt_cf;
-my $test = 0;
-my $opt_pre = 0;
-my $opt_no_pre = 0;
-my $opt_no_post = 0;
-my $opt_safe = 0;
-my $opt_content;
-my $opt_test;
-my $opt_dry_run;
-my ($opt_home_src, $opt_home_dst, $opt_root_src, $opt_root_dst, 
-    $opt_no_backups);
+my ($opt_cf,       $test,         $opt_pre,      $opt_no_pre,
+    $opt_no_post,  $opt_safe,     $opt_content,  $opt_test,
+    $opt_dry_run,  $opt_home_src, $opt_home_dst, $opt_root_src,
+    $opt_root_dst, $opt_no_backups);
 
 GetOptions(
     'c|config=s' => \$opt_cf,
@@ -56,14 +49,13 @@ GetOptions(
     'R|root-dst=s' => \$opt_root_dst,
     'B|no-backups' => \$opt_no_backups,
     'h|help' => sub { pod2usage(-exitval => 0) },
-) or die;
+) or pod2usage(-exitval => 64);
 
 my $cdir = defined($opt_content) ? $opt_content
     : $root ? "/var/lib/ctf/content"
     :         "$ENV{HOME}/.ctf/content";
 
 my @selection = @ARGV;
-
 
 my $pre = (!$opt_safe and !$opt_no_pre);
 my $post = (!$opt_safe and !$opt_no_post and !$opt_test);
@@ -79,6 +71,11 @@ if ($do_load_cf) {
     # an exception with a descriptive message if it can't load the file.
     # <https://rt.cpan.org/Public/Bug/Display.html?id=72571>
     $cfyaml = YAML::LoadFile($cf);
+
+    # Allow twiddle-paths for relative to home directory in config file.
+    for (qw(contentdir manifest lockpath disablepath)) {
+        exists($cfyaml{$_}) and $cfyaml{$_} =~ s/^~/$ENV{HOME}/;
+    } 
 
     for (qw(lockpath disablepath)) {
         defined($cfyaml->{$_}) and $conf{$_} = $cfyaml->{$_};
@@ -210,14 +207,105 @@ for my $pfix (@pfixes) {
     }
 }
 
+
+my %files;
+for my $f (@files) {
+    if (defined($files{$f->{dstpath}})) {
+        fatl("$f->{dstpath} would be deployed from two places");
+    }
+
+    $files{$f->{dstpath}} = $f;
+}
+
+for my $path (keys %files) {
+
+    # These get overwritten in the next block if the user has specified
+    # no pre / post in the manifest.
+    if ($files{"$path.prectf"}) {
+        $files{$path}{pre} = ["$path.prectf"];
+    }
+    if ($files{"$path.postctf"}) {
+        $files{$path}{post} = ["$path.postctf"];
+    }
+}
+
 for my $file (@$manifest) {
     # FIXME: confirm present (unless selection excludes it).
-    # warn if not.
+    # warn if not.  Merge data.
+
+    my $dstpath = mfpath_to_dst($file->{path}, \%comp_dst);
+
+    if (defined($files{$dstpath})) {
+        #$files{mfpath_to_dst($file)}{mfpath} = $file->{path};
+        $files{$dstpath}{mfdata} = $file;
+
+
+        # This allows the user to set pre/post, overriding implicit 
+        # ones.  To say none, they can do "pre: ~" or "pre: []"
+        for my $hook (qw(pre post)) {
+            if (exists($file{pre})) {
+                if (defined($file{pre})) {
+                    # Is it single value supplied as scalar
+                    if (ref($file{pre}) eq '') {
+
+                        # FIXME: could warn if overwriting implicit one from
+                        # earlier
+                        $files{$path}{pre} = [ $file{pre} ];
+                    }
+                    elsif (ref($file{pre}) eq 'ARRAY') {
+                        $files{$path}{pre} = $file{pre};
+                    }
+                }
+                # User must have explicitly set it to undef, possibly to disable
+                # an implicit one.
+                else {
+                    $files{$path}{pre} = [];
+                }
+            }
+        }        
+
+        for my $depattr (qw(pre post)) {
+            if (defined($files{$path}{$depattr})) {
+                if (ref($files{$path}{$depattr}) eq '') {
+                    push @{ $files{$dstpath}{deps} }, $file->{$depattr};
+                }
+            }
+        }
+        if (defined($file->{depends})) {
+            
+            elsif(ref($file->{$depattr}) eq 'ARRAY') {
+                    push @{ $files{$dstpath}{deps} }, @{$file->{$depattr}};
+                }
+            }
+        }
+    }
+    else {
+        warn "in manifest but not content: $file->{path}\n";
+    }
 }
 
 my @updated;
 
-FILE: for my $file (@files) {
+FILE: while (my ($k, $v) = each %files) {
+    dofile($v, []);
+}
+
+# dofile($f, $stack)
+#   Deploy file $f, then deploy files $stack.
+#
+sub dofile {
+    my ($file, $stack) = @_;
+
+    if (grep { $_->{path} eq $file->{path} } @$stack) {
+        fatl(1, "dependency loop involving $file->{path}");
+    }
+
+    if (ref($file->{deps}) eq 'ARRAY' and @{$file->{deps}}) {
+        for my $dep (@{$file->{deps}}) {
+            dofile($dep, [@$stack, $file]);
+        }
+    }
+
     # update, adding to @updated if changed
     my @rplc = qw(rplc -e);
 
@@ -225,7 +313,7 @@ FILE: for my $file (@files) {
 
     my $mfe = $mf_hash{filehash_to_manifest_path($file)};
 
-    ischange($file->{dstpath}, $file->{srcpath}, $mfe // {}) or next FILE;
+    ischange($file->{dstpath}, $file->{srcpath}, $mfe // {}) or return;
 
     if (defined($mfe)) {
         my %mfe = %{$mfe};
@@ -255,6 +343,8 @@ FILE: for my $file (@files) {
     # Want to run postctf from here (subject to deps), so that we
     # have minimal unapplied config, and can easily back out if a
     # postctf fails.
+
+    return;
 }
 
 sub filehash_to_manifest_path {
@@ -267,10 +357,21 @@ sub filehash_to_manifest_path {
     );
 }
 
-sub manifest_entry {
-    my ($file, $manifest) = @_;
+sub mfpath_to_dst {
+    my ($file, $comp_dst) = @_;
 
-#    if ($file->
+    for my $k (keys %NOTATION) {
+        my $v = $NOTATION{$k};
+        if ($file =~ /^$v/) {
+            my $notation_subst = $comp_dst->{$k};
+            defined($notation_subst) 
+                or fatl(1, "don't know component dst for $k");
+            $file =~ s/^$v/$notation_subst/;
+            $file = canonpath($file);
+            return $file;
+        }
+    }
+    die "unknown component notation: $file\n";
 }
 
 # If $lower is under $higher (on path strings alone, not on looking at
@@ -354,8 +455,6 @@ sub fatl {
 #   differently, eg ~/foo and /home/alice/foo.
 # - validate all properties in the manifest?  Catches errors, but may
 #   reduce extensibility for other apps
-# - not currently setting mode correctly for ~/bin/morning
-# - -n mode doesn't work - it still deploys
 # - may still be too fragile with binary files, eg a vim .swp file was
 #   lying around, this made it fall over.  Maybe if diff exits 2, use
 #   cmp instead
