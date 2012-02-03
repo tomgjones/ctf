@@ -81,9 +81,11 @@ reliably.
 
 =item depends
 
-List of files which should be deployed before this one.  All config
+File(s) which should be deployed before this one.  All config
 files depend on their own prectfs, and are depended
-upon by their postctfs, should these exist.
+upon by their postctfs, automatically, should these exist.
+
+This item may be single-valued, or it may be a list of values.
 
 =item status
 
@@ -93,7 +95,7 @@ look at how package managers know which files they manage).
 
 =item post
 
-Name of a program to run after installing this file.  Normally 
+Name(s) of program(s) to run after installing this file.  Normally 
 used to activate the new
 configuration.  The program will be run with this file's name
 as an argument.  For more details, see postctf(3).
@@ -105,9 +107,11 @@ TODO: if it fails (non zero exit status),
 this file and its group are replaced by
 their previous versions.
 
+This item may be single-valued, or it may be a list of values.
+
 =item pre
 
-Name of a program to run before installing this file.  Normally
+Name(s) of program(s) to run before installing this file.  Normally
 used to validate the file's contents.  The path to this file
 in the repository component will be passed to the program (not
 the path to this file in its final destination).  For more
@@ -115,6 +119,8 @@ details, see L<prectf(3)>.
 
 TODO: If the pre program exits non-zero, ctf will conclude that this
 file should not be installed.
+
+This item may be single-valued, or it may be a list of values.
 
 =back
 
