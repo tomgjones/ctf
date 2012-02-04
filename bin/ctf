@@ -74,8 +74,8 @@ if ($do_load_cf) {
 
     # Allow twiddle-paths for relative to home directory in config file.
     for (qw(contentdir manifest lockpath disablepath)) {
-        exists($cfyaml{$_}) and $cfyaml{$_} =~ s/^~/$ENV{HOME}/;
-    } 
+        exists($cfyaml->{$_}) and $cfyaml->{$_} =~ s/^~/$ENV{HOME}/;
+    }
 
     for (qw(lockpath disablepath)) {
         defined($cfyaml->{$_}) and $conf{$_} = $cfyaml->{$_};
@@ -124,6 +124,9 @@ for (@$manifest) {
         . ": every entry in manifest must define path");
     defined($mf_hash{$path}) and fatl(78, $conf{manifest}
         . ": defined twice in manifest: $path\n");
+
+    twiddle_expand($_, qw(pre post depends));
+
     $mf_hash{$path} = $_;
 }
 
@@ -207,7 +210,9 @@ for my $pfix (@pfixes) {
     }
 }
 
-
+# %files will contain data about all the files we'll be looking at, keyed
+# on dstpath (the destination path).  Note distinction between this and
+# the source path, and the path as it would be declared in the manifest.
 my %files;
 for my $f (@files) {
     if (defined($files{$f->{dstpath}})) {
@@ -243,40 +248,50 @@ for my $file (@$manifest) {
         # This allows the user to set pre/post, overriding implicit 
         # ones.  To say none, they can do "pre: ~" or "pre: []"
         for my $hook (qw(pre post)) {
-            if (exists($file{pre})) {
-                if (defined($file{pre})) {
+            if (exists($file->{$hook})) {
+                if (defined($file->{$hook})) {
                     # Is it single value supplied as scalar
-                    if (ref($file{pre}) eq '') {
+                    if (ref($file->{$hook}) eq '') {
 
                         # FIXME: could warn if overwriting implicit one from
                         # earlier
-                        $files{$path}{pre} = [ $file{pre} ];
+                        $files{$dstpath}{$hook} = [ $file->{$hook} ];
                     }
-                    elsif (ref($file{pre}) eq 'ARRAY') {
-                        $files{$path}{pre} = $file{pre};
+                    elsif (ref($file->{$hook}) eq 'ARRAY') {
+                        $files{$dstpath}{$hook} = $file->{$hook};
                     }
                 }
                 # User must have explicitly set it to undef, possibly to disable
                 # an implicit one.
                 else {
-                    $files{$path}{pre} = [];
+                    $files{$dstpath}{$hook} = [];
                 }
             }
+            map { s/^~/$ENV{HOME}/ } @{$files{$dstpath}{$hook}};
         }        
 
         for my $depattr (qw(pre post)) {
-            if (defined($files{$path}{$depattr})) {
-                if (ref($files{$path}{$depattr}) eq '') {
+            if (defined($file->{$depattr})) {
+                if (ref($file->{$depattr}) eq '') {
                     push @{ $files{$dstpath}{deps} }, $file->{$depattr};
+                }
+                elsif (ref($file->{$depattr}) eq 'ARRAY') {
+                    push @{ $files{$dstpath}{deps} }, @{ $file->{$depattr} };
+                }
+                else {
+                    die "bad $depattr data for $dstpath: "
+                        . ref($files{$dstpath}{$depattr});
                 }
             }
         }
         if (defined($file->{depends})) {
-            
-            elsif(ref($file->{$depattr}) eq 'ARRAY') {
-                    push @{ $files{$dstpath}{deps} }, @{$file->{$depattr}};
-                }
+            if (ref($file->{depends}) eq '') {
+                push @{ $files{$dstpath}{deps} }, $file->{depends};
             }
+            elsif(ref($file->{depends}) eq 'ARRAY') {
+                push @{ $files{$dstpath}{deps} }, @{$file->{depends}};
+            }
+            else { die }
         }
     }
     else {
@@ -287,27 +302,49 @@ for my $file (@$manifest) {
 my @updated;
 
 FILE: while (my ($k, $v) = each %files) {
-    dofile($v, []);
+    dofile($v, [], \%files, $test);
 }
 
-# dofile($f, $stack)
-#   Deploy file $f, then deploy files $stack.
+# dofile($f, $stack, $files, $test)
+#   Deploy file $f, then deploy files $stack.  $files is the hashref
+#   of info about all the files the program's looking at.  $test is a bool
+#   indicating test mode.
 #
+#   Returns true on success, false on failure.
 sub dofile {
-    my ($file, $stack) = @_;
+    my ($file, $stack, $files, $test) = @_;
 
-    if (grep { $_->{path} eq $file->{path} } @$stack) {
-        fatl(1, "dependency loop involving $file->{path}");
+    if (grep { $_->{dstpath} eq $file->{dstpath} } @$stack) {
+        fatl(1, "dependency loop involving $file->{dstpath}");
     }
 
     if (ref($file->{deps}) eq 'ARRAY' and @{$file->{deps}}) {
         for my $dep (@{$file->{deps}}) {
-            dofile($dep, [@$stack, $file]);
+            my $depdst = mfpath_to_dst($dep, \%comp_dst);
+            ref($files->{$depdst}) eq 'HASH' 
+                or die "$file->{dstpath}: missing dependency on $dep\n";
+            dofile($files->{$depdst}, [@$stack, $file], $files);
+        }
+    }
+
+    if (ref($file->{pre}) eq 'ARRAY') {
+        for my $pre (@{$file->{pre}}) {
+            if ($test) {
+                warn "test mode; would execute: $pre\n";
+            }
+            else {
+                # It should have already been installed, as a dep.
+                warn "executing pre $pre\n";
+                system($pre, $file->{dstpath}) and die;
+                # FIXME: nicer error processing
+            }
         }
     }
 
     # update, adding to @updated if changed
     my @rplc = qw(rplc -e);
+
+    $test and push @rplc, "-n";
 
     my $path_as_it_would_be_declared = filehash_to_manifest_path($file);
 
@@ -340,9 +377,28 @@ sub dofile {
 
     # FIXME: check for failure
 
+    my $ex = $?>>8;
+    if (!($ex == 0 or $ex == 1)) {
+        warn "rplc command was @rplc < $file->{srcpath}\n";
+        fatl(1, "rplc exited: " . ($?>>8));
+    }
+
     # Want to run postctf from here (subject to deps), so that we
     # have minimal unapplied config, and can easily back out if a
     # postctf fails.
+    if (ref($file->{post}) eq 'ARRAY') {
+        for my $post (@{$file->{post}}) {
+            if ($test) {
+                warn "test mode; would execute: $post\n";
+            }
+            else {
+                # It should have already been installed, as a dep.
+                warn "executing post $post\n";
+                system($post, $file->{dstpath}) and die;
+                # FIXME: nicer error processing
+            }
+        }
+    }
 
     return;
 }
@@ -450,6 +506,22 @@ sub fatl {
     exit $exit;
 }
 
+# twiddle_expand($hash, $keys)
+#   Expands the values of $hash determined by $keys replacing a ~ at
+#   the start with the user's home directory.  The values can be
+#   scalars or lists.  Changes its input.
+sub twiddle_expand {
+    my ($h, @k) = @_;
+
+    for (@k) {
+        if (exists($h->{$_})) {
+            for ((ref($h->{$_}) eq 'ARRAY') ? @{$h->{$_}} : ($h->{$_})) {
+                s/^~/$ENV{HOME}/;
+            }
+        }
+    }
+}
+
 # FIXME
 # - what to do if two components end up specifying the same file
 #   differently, eg ~/foo and /home/alice/foo.
@@ -458,6 +530,10 @@ sub fatl {
 # - may still be too fragile with binary files, eg a vim .swp file was
 #   lying around, this made it fall over.  Maybe if diff exits 2, use
 #   cmp instead
+# - need to think about how failures of pre / posts / rplcs
+#   are handled, including wrt deps and backing out.
+#   Probably requires redoing so that the deps tree is calculated at
+#   the start and consists of explicit references.
 
 
 =head1 NAME ctf - deploy configuration files
