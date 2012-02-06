@@ -29,7 +29,7 @@ mappings is described below.
 =item path
 
 Path to the file in its final installed location.  Paths starting
-"/" in the root component, and
+"/" are in the root component, and
 are relative to the root directory.  Paths starting "~" are
 in the home component, and are
 relative to the home directory of the user running ctf.
@@ -60,7 +60,7 @@ ctf(1).
 
 =item mode
 
-Octal representation of the file's mode.  Default is 0444.
+String of octal digits representing of the file's mode.  Default is "0444".
 
 =item owner
 
@@ -129,6 +129,7 @@ This item may be single-valued, or it may be a list of values.
 =over 4
 
 =item ctf(1)
+
 =item ctf.conf(5)
 
 =back
