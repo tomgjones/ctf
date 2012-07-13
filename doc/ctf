@@ -36,7 +36,10 @@ Use CF as the configuration file.  The default configuration file is
 
 =item -C,--content=DIR
 
-Use DIR as the content directory.
+Use DIR as the content directory.  Defaults to /var/lib/ctf/content for 
+root, or ~/.ctf/content for other users.  Can also be controlled by
+the "contentdir" setting in ctf.conf(5), though the command line
+option takes precedence.
 
 =item -t,--test
 
