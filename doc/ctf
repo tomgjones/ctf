@@ -8,13 +8,14 @@ ctf - configuration file deployer
 
 =head1 DESCRIPTION
 
-Deploys managed configuration files from the configured repository
+ctf deploys managed configuration files from the configured repository
 as specified in L<ctf.conf(5)>.
 
 ctf expects to find a L<ctf.manifest(5)> directly
 in the top level content directory.
 The configuration files to deploy are found in subdirectories of the
-content directory; each of these subdirectories is called a component.
+content directory; each of these top-level 
+subdirectories is called a component.
 
 If PATH ... is supplied, only files under those paths are
 deployed.

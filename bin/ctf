@@ -300,9 +300,10 @@ for my $file (@$manifest) {
 }
 
 my @updated;
+my %done;
 
 FILE: while (my ($k, $v) = each %files) {
-    dofile($v, [], \%files, $test);
+        dofile($v, [], \%files, $test);
 }
 
 # dofile($f, $stack, $files, $test)
@@ -313,6 +314,10 @@ FILE: while (my ($k, $v) = each %files) {
 #   Returns true on success, false on failure.
 sub dofile {
     my ($file, $stack, $files, $test) = @_;
+
+    if (defined($file->{done})) {
+        return 1;
+    }
 
     if (grep { $_->{dstpath} eq $file->{dstpath} } @$stack) {
         fatl(1, "dependency loop involving $file->{dstpath}");
@@ -400,6 +405,8 @@ sub dofile {
         }
     }
 
+    $file->{done} = 1;
+
     return;
 }
 
@@ -457,6 +464,7 @@ sub path_under {
 # Say we want to know the path, within each of the components,
 # to /home/bob/foo.  Within root, it's /home/bob/foo.  Within home
 # it's foo.
+# XX: never finished implementing, and it's unused.  Remove?
 sub path_to_pfix_within_comp {
     my ($path, $comp, $comp_dst) = @_;
 
