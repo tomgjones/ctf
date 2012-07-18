@@ -1,0 +1,12 @@
+Source: ctf
+Section: admin
+Priority: optional
+Build-Depends: debhelper (>= 4)
+Maintainer: Tom Jones <tom@oxix.org>
+Standards-Version: 3.8.0.1
+
+Package: ctf
+Architecture: all
+Depends: ${perl:Depends}
+Description: Deploy a repository of configuration files.
+ Deploy a repository of configuration files.
