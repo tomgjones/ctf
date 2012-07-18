@@ -9,7 +9,7 @@ use Data::Dumper;
 use File::Basename qw(basename dirname);
 use File::Compare;
 use File::Find::Object;
-use File::Spec::Functions; # catfile
+use File::Spec::Functions; # catfile canonpath
 use File::stat;
 use Getopt::Long qw( :config bundling no_ignore_case require_order );
 use IPC::Run qw(run);
@@ -42,7 +42,7 @@ GetOptions(
     'T|nopost' => \$opt_no_post,
     's|safe'     => \$opt_safe,
     'C|content=s' => \$opt_content,
-    'n|dry-run' => \$opt_dry_run,
+    'n|dry-run' => \$opt_dry_run,     # --dry-run internal for devel
     'H|home-src=s' => \$opt_home_src,
     'I|home-dst=s' => \$opt_home_dst,
     'r|root-src=s' => \$opt_root_src,
@@ -54,8 +54,6 @@ GetOptions(
 my $cdir = defined($opt_content) ? $opt_content
     : $root ? "/var/lib/ctf/content"
     :         "$ENV{HOME}/.ctf/content";
-
-my @selection = @ARGV;
 
 my $pre = (!$opt_safe and !$opt_no_pre);
 my $post = (!$opt_safe and !$opt_no_post and !$opt_test);
@@ -295,7 +293,9 @@ for my $file (@$manifest) {
         }
     }
     else {
-        warn "in manifest but not content: $file->{path}\n";
+        unless (@pfixes) {
+            warn "in manifest but not content: $file->{path}\n";
+        }
     }
 }
 
@@ -349,7 +349,7 @@ sub dofile {
     # update, adding to @updated if changed
     my @rplc = qw(rplc -e);
 
-    $test and push @rplc, "-n";
+    ($test or $opt_safe) and push @rplc, "-n";
 
     my $path_as_it_would_be_declared = filehash_to_manifest_path($file);
 
@@ -556,4 +556,15 @@ is only here for pod2usage's sake to easily generate help text.
   Deploy config files under PATHs, or all if no PATH is given.
 
   OPTIONS
-  -c,--content=DIR specify content directory
+  -c,--content=DIR   Specify content directory
+  -t,--test          Report changes and run prectf programs
+  -P,--nopre         Don't execute prectf programs
+  -T,--nopost        Don't execute postctf programs
+  -s,--safe          Report changes without executing any repo content (-tP)
+  -C,--content=DIR   Specify top level content directory
+  -H,--home-src=DIR  Where to get home directory files from
+  -I,--home-dst=DIR  Where to install home directory files to
+  -r,--root-src=DIR  Where to get root directory files from
+  -R,--root-dst=DIR  Where to install root directory files to
+  -B,--no-backups    Don't take any backup copies of files
+  -h,--help          Display this help text
