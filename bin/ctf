@@ -16,7 +16,7 @@ use IPC::Run qw(run);
 use List::MoreUtils qw(any zip pairwise);
 use Pod::Usage;
 use Readonly;
-use Smart::Comments;
+#use Smart::Comments;
 use YAML;
 
 Readonly my $root => $< == 0;
