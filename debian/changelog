@@ -1,3 +1,9 @@
+ctf (0.2~dev.0) UNRELEASED; urgency=low
+
+  * Depend on libfile-find-object-perl.
+
+ -- Tom Jones <tom@oxix.org>  Fri, 10 Aug 2012 15:08:29 +0100
+
 ctf (0.1) UNRELEASED; urgency=low
 
   * Initial release.
