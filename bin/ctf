@@ -16,7 +16,7 @@ use IPC::Run qw(run);
 use List::MoreUtils qw(any zip pairwise);
 use Pod::Usage;
 use Readonly;
-use Smart::Comments;
+#use Smart::Comments;
 use YAML;
 
 Readonly my $root => $< == 0;
@@ -232,13 +232,19 @@ for my $path (keys %files) {
     }
 }
 
+# Also index on manifest path.
+my %filesbymfpath;
+for my $path (keys %files) {
+    $filesbymfpath{filehash_to_manifest_path($files{$path})} = $files{$path};
+}
+
 for my $file (@$manifest) {
     # FIXME: confirm present (unless selection excludes it).
     # warn if not.  Merge data.
 
     my $dstpath = mfpath_to_dst($file->{path}, \%comp_dst);
 
-    if (defined($files{$dstpath})) {
+    if (defined($filesbymfpath{$dstpath})) {
         #$files{mfpath_to_dst($file)}{mfpath} = $file->{path};
         $files{$dstpath}{mfdata} = $file;
 

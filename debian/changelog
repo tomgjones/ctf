@@ -1,6 +1,7 @@
-ctf (0.2~dev.0) UNRELEASED; urgency=low
+ctf (0.2~dev.2) UNRELEASED; urgency=low
 
   * Depend on libfile-find-object-perl.
+  * Depend on libstring-random-perl.
 
  -- Tom Jones <tom@oxix.org>  Fri, 10 Aug 2012 15:08:29 +0100
 

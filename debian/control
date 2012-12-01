@@ -7,6 +7,6 @@ Standards-Version: 3.8.0.1
 
 Package: ctf
 Architecture: all
-Depends: ${perl:Depends}, rplc, libfile-find-object-perl
+Depends: ${perl:Depends}, rplc, libfile-find-object-perl, libstring-random-perl
 Description: Deploy a repository of configuration files.
  Deploy a repository of configuration files.
